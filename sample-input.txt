@@ -1,0 +1,11 @@
+Do you want to allow this tool to edit files?
+
+Tool: Edit
+Path: C:\Projects\demo\app.py
+
+Options:
+  1. Allow once
+  2. Allow always
+  3. Deny
+
+Press Enter to confirm or Esc to cancel.

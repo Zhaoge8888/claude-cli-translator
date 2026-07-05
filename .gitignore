@@ -1,0 +1,23 @@
+# Local configuration and secrets
+config.json
+.env
+*.local.json
+
+# Runtime state
+cache.json
+hotkey.log
+requests/
+
+# Python
+__pycache__/
+*.py[cod]
+.python-version
+.venv/
+venv/
+
+# Windows / editor noise
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/
+

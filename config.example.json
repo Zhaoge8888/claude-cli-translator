@@ -1,0 +1,23 @@
+{
+  "api_key_env": "DEEPSEEK_API_KEY",
+  "api_key": "",
+  "base_url": "https://api.deepseek.com",
+  "model": "deepseek-v4-pro",
+  "temperature": 0.1,
+  "timeout_seconds": 60,
+  "extra_body": {
+    "thinking": {
+      "type": "disabled"
+    }
+  },
+  "target_language": "zh-CN",
+  "max_chars": 6000,
+  "compact_mode": true,
+  "clean_visual_selection": true,
+  "interleave_line_pairs": true,
+  "request_dir": "%LOCALAPPDATA%\\ClaudeCliTranslator\\requests",
+  "cache_file": "%LOCALAPPDATA%\\ClaudeCliTranslator\\cache.json",
+  "glossary_file": "glossary.json",
+  "show_original": true,
+  "show_glossary_hits": false
+}
