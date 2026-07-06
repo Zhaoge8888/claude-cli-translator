@@ -30,6 +30,11 @@ function Get-PowerShellPath {
 }
 
 function Get-ShortcutIcon {
+    $appIcon = Join-Path $ScriptDir "assets\app-icon.ico"
+    if (Test-Path $appIcon) {
+        return $appIcon
+    }
+
     $wt = Get-Command wt.exe -ErrorAction SilentlyContinue
     if ($wt -and $wt.Source) {
         return "$($wt.Source),0"
