@@ -81,6 +81,14 @@ setx DEEPSEEK_API_KEY "你的 API Key"
 powershell -ExecutionPolicy Bypass -File .\start-claude-translator.ps1
 ```
 
+安装桌面和开始菜单快捷方式：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install-shortcut.ps1
+```
+
+如果系统不允许脚本自动固定到任务栏，可以在开始菜单搜索 `Claude Code Translator`，右键选择固定到任务栏。
+
 这会自动启动双击 Ctrl 热键、Claude Code 和翻译分屏。默认下方翻译 pane 占 32% 高度。
 
 调整初始高度：
