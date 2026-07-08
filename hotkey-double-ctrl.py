@@ -3,6 +3,7 @@ import ctypes
 import datetime as _dt
 import os
 import queue
+import re
 import sys
 import threading
 import time
@@ -19,6 +20,9 @@ DOUBLE_TAP_MS = 380
 COPY_STABILIZE_DELAY_SECONDS = 0.12
 COPY_ATTEMPT_WAIT_SECONDS = 0.75
 COPY_ON_SELECT_FALLBACK_MAX_AGE_SECONDS = 30.0
+STATUS_NOISE_TEXTS = {
+    "accessing workspace",
+}
 
 WH_KEYBOARD_LL = 13
 WM_KEYDOWN = 0x0100
@@ -254,6 +258,21 @@ def set_clipboard_text(text: str, internal: bool = True) -> None:
         internal_clipboard_sequences.add(int(user32.GetClipboardSequenceNumber()))
 
 
+def normalize_clipboard_text(text: str) -> str:
+    return text.strip("\r\n\t ")
+
+
+def is_status_noise(text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", text.strip()).casefold()
+    if not normalized:
+        return False
+    if normalized in STATUS_NOISE_TEXTS:
+        return True
+    if normalized.startswith("accessing workspace") and len(normalized) <= 80:
+        return True
+    return False
+
+
 def key_input(vk: int, flags: int = 0) -> INPUT:
     item = INPUT()
     item.type = INPUT_KEYBOARD
@@ -281,16 +300,27 @@ def send_key_chord(name: str, keys: list[int]) -> None:
 
 def wait_for_copied_text(sentinel: str, timeout_seconds: float) -> str:
     deadline = time.time() + timeout_seconds
+    ignored_noise = False
     while time.time() < deadline:
         current = get_clipboard_text()
         if current and current != sentinel:
-            return current.strip("\r\n\t ")
+            candidate = normalize_clipboard_text(current)
+            if not candidate:
+                return ""
+            if is_status_noise(candidate):
+                if not ignored_noise:
+                    log(f"ignored status clipboard text: {candidate[:80]!r}")
+                    ignored_noise = True
+                time.sleep(0.04)
+                continue
+            return candidate
         time.sleep(0.04)
     return ""
 
 
 def copy_selected_text(sentinel: str) -> str:
     attempts = (
+        ("Ctrl+C", [VK_CONTROL, VK_C]),
         ("Ctrl+Shift+C", [VK_CONTROL, VK_SHIFT, VK_C]),
         ("Ctrl+Insert", [VK_CONTROL, VK_INSERT]),
     )
@@ -309,7 +339,10 @@ def copy_selected_text(sentinel: str) -> str:
 def can_use_copy_on_select_fallback(saved_text: str, saved_change_age: float) -> bool:
     if not saved_text:
         return False
-    if len(saved_text.strip()) < 2:
+    candidate = normalize_clipboard_text(saved_text)
+    if len(candidate) < 2:
+        return False
+    if is_status_noise(candidate):
         return False
     return saved_change_age <= COPY_ON_SELECT_FALLBACK_MAX_AGE_SECONDS
 
@@ -334,16 +367,19 @@ def trigger_translate(source: str) -> None:
         now = time.monotonic()
         refresh_clipboard_sequence(now)
         saved_change_age = (now - clipboard_last_change) if clipboard_last_change else float("inf")
-        sentinel = f"__CLAUDE_CLI_TRANSLATOR_SENTINEL_{time.time_ns()}__"
-        set_clipboard_text(sentinel)
-        time.sleep(COPY_STABILIZE_DELAY_SECONDS)
-        copied = copy_selected_text(sentinel)
+        copied = ""
 
-        if not copied and can_use_copy_on_select_fallback(saved_text, saved_change_age):
-            copied = saved_text.strip("\r\n\t ")
-            log(f"copyOnSelect fallback used {len(copied)} chars, clipboard age={saved_change_age:.2f}s")
+        if can_use_copy_on_select_fallback(saved_text, saved_change_age):
+            copied = normalize_clipboard_text(saved_text)
+            log(f"copyOnSelect direct used {len(copied)} chars, clipboard age={saved_change_age:.2f}s")
+        else:
+            sentinel = f"__CLAUDE_CLI_TRANSLATOR_SENTINEL_{time.time_ns()}__"
+            set_clipboard_text(sentinel)
+            time.sleep(COPY_STABILIZE_DELAY_SECONDS)
+            copied = copy_selected_text(sentinel)
 
-        set_clipboard_text(saved_text)
+            if not copied:
+                set_clipboard_text(saved_text)
 
         if len(copied) < 2:
             log("copy failed or selection empty")
