@@ -2,7 +2,9 @@
 import ctypes
 import datetime as _dt
 import os
+import queue
 import sys
+import threading
 import time
 from ctypes import wintypes
 from pathlib import Path
@@ -14,23 +16,27 @@ REQUEST_DIR = STATE_DIR / "requests"
 LOG_FILE = STATE_DIR / "hotkey.log"
 
 DOUBLE_TAP_MS = 380
-COPY_WAIT_SECONDS = 0.9
+COPY_WAIT_SECONDS = 1.4
 
 WH_KEYBOARD_LL = 13
 WM_KEYDOWN = 0x0100
 WM_KEYUP = 0x0101
 WM_SYSKEYDOWN = 0x0104
 WM_SYSKEYUP = 0x0105
+WM_HOTKEY = 0x0312
 VK_LCONTROL = 0xA2
 VK_RCONTROL = 0xA3
 VK_CONTROL = 0x11
 VK_SHIFT = 0x10
+VK_SPACE = 0x20
 VK_C = 0x43
 KEYEVENTF_KEYUP = 0x0002
 INPUT_KEYBOARD = 1
 CF_UNICODETEXT = 13
 GMEM_MOVEABLE = 0x0002
 ERROR_ALREADY_EXISTS = 183
+MOD_CONTROL = 0x0002
+HOTKEY_ID_CTRL_SPACE = 1001
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -96,6 +102,12 @@ user32.CallNextHookEx.argtypes = [wintypes.HHOOK, ctypes.c_int, wintypes.WPARAM,
 user32.CallNextHookEx.restype = ctypes.c_long
 user32.GetMessageW.argtypes = [ctypes.POINTER(wintypes.MSG), wintypes.HWND, wintypes.UINT, wintypes.UINT]
 user32.GetMessageW.restype = wintypes.BOOL
+user32.RegisterHotKey.argtypes = [wintypes.HWND, ctypes.c_int, wintypes.UINT, wintypes.UINT]
+user32.RegisterHotKey.restype = wintypes.BOOL
+user32.UnregisterHotKey.argtypes = [wintypes.HWND, ctypes.c_int]
+user32.UnregisterHotKey.restype = wintypes.BOOL
+user32.GetAsyncKeyState.argtypes = [ctypes.c_int]
+user32.GetAsyncKeyState.restype = ctypes.c_short
 user32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int]
 user32.SendInput.restype = wintypes.UINT
 user32.keybd_event.argtypes = [ctypes.c_ubyte, ctypes.c_ubyte, wintypes.DWORD, ULONG_PTR]
@@ -127,6 +139,7 @@ kernel32.GlobalUnlock.restype = wintypes.BOOL
 last_ctrl_tap = 0.0
 is_sending = False
 hook_handle = None
+trigger_queue: "queue.Queue[str]" = queue.Queue()
 
 
 def log(message: str) -> None:
@@ -134,6 +147,29 @@ def log(message: str) -> None:
     stamp = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with LOG_FILE.open("a", encoding="utf-8") as f:
         f.write(f"{stamp} {message}\n")
+
+
+def enqueue_trigger(source: str) -> None:
+    if is_sending:
+        log(f"{source} ignored: copy already in progress")
+        return
+    if not trigger_queue.empty():
+        log(f"{source} ignored: trigger already queued")
+        return
+    trigger_queue.put(source)
+
+
+def is_key_down(vk: int) -> bool:
+    return bool(user32.GetAsyncKeyState(vk) & 0x8000)
+
+
+def wait_for_hotkey_release(timeout_seconds: float = 0.7) -> None:
+    deadline = time.time() + timeout_seconds
+    watched = (VK_CONTROL, VK_LCONTROL, VK_RCONTROL, VK_SPACE)
+    while time.time() < deadline:
+        if not any(is_key_down(vk) for vk in watched):
+            return
+        time.sleep(0.02)
 
 
 def open_clipboard() -> bool:
@@ -228,17 +264,19 @@ def write_request(text: str) -> Path:
     return path
 
 
-def trigger_translate() -> None:
+def trigger_translate(source: str) -> None:
     global is_sending
     if is_sending:
         return
     is_sending = True
     try:
-        log("double Ctrl detected")
+        log(f"{source} trigger detected")
+        wait_for_hotkey_release()
         saved_text = get_clipboard_text()
         sentinel = f"__CLAUDE_CLI_TRANSLATOR_SENTINEL_{time.time_ns()}__"
         set_clipboard_text(sentinel)
         send_ctrl_shift_c()
+        time.sleep(0.05)
 
         copied = ""
         deadline = time.time() + COPY_WAIT_SECONDS
@@ -264,6 +302,15 @@ def trigger_translate() -> None:
         is_sending = False
 
 
+def trigger_worker() -> None:
+    while True:
+        source = trigger_queue.get()
+        try:
+            trigger_translate(source)
+        finally:
+            trigger_queue.task_done()
+
+
 def keyboard_proc(n_code, w_param, l_param):
     global last_ctrl_tap
     if n_code == 0 and not is_sending:
@@ -272,7 +319,7 @@ def keyboard_proc(n_code, w_param, l_param):
             now = time.monotonic() * 1000
             if now - last_ctrl_tap <= DOUBLE_TAP_MS:
                 last_ctrl_tap = 0.0
-                trigger_translate()
+                enqueue_trigger("double Ctrl")
             else:
                 last_ctrl_tap = now
     return user32.CallNextHookEx(hook_handle, n_code, w_param, l_param)
@@ -295,7 +342,14 @@ def main() -> int:
     ensure_single_instance()
     REQUEST_DIR.mkdir(parents=True, exist_ok=True)
     log("python hotkey started")
-    print("Claude CLI Translator hotkey active: double Ctrl")
+    worker = threading.Thread(target=trigger_worker, name="trigger-worker", daemon=True)
+    worker.start()
+    ctrl_space_registered = bool(user32.RegisterHotKey(None, HOTKEY_ID_CTRL_SPACE, MOD_CONTROL, VK_SPACE))
+    if ctrl_space_registered:
+        log("Ctrl+Space registered")
+    else:
+        log(f"Ctrl+Space registration failed: {ctypes.get_last_error()}")
+    print("Claude CLI Translator hotkey active: Ctrl+Space, fallback double Ctrl")
     print(f"Log: {LOG_FILE}")
     callback = HOOKPROC(keyboard_proc)
     hook_handle = user32.SetWindowsHookExW(WH_KEYBOARD_LL, callback, kernel32.GetModuleHandleW(None), 0)
@@ -306,8 +360,13 @@ def main() -> int:
         return 1
     msg = wintypes.MSG()
     while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) != 0:
+        if msg.message == WM_HOTKEY and msg.wParam == HOTKEY_ID_CTRL_SPACE:
+            enqueue_trigger("Ctrl+Space")
+            continue
         user32.TranslateMessage(ctypes.byref(msg))
         user32.DispatchMessageW(ctypes.byref(msg))
+    if ctrl_space_registered:
+        user32.UnregisterHotKey(None, HOTKEY_ID_CTRL_SPACE)
     return 0
 
 

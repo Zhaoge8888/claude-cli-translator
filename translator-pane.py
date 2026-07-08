@@ -451,7 +451,7 @@ def watch_requests(config: dict, glossary: dict, dry_run: bool) -> None:
     request_dir.mkdir(parents=True, exist_ok=True)
     print("Claude CLI Translator MVP")
     print(f"监听目录: {request_dir}")
-    print("在 Claude Code 中框选英文后双击 Ctrl。按 Ctrl+C 退出翻译 pane。")
+    print("在 Claude Code 中框选英文后按 Ctrl+Space；双击 Ctrl 备用。按 Ctrl+C 退出翻译 pane。")
     print("调整分屏大小: Alt+Shift+↑/↓；切换分屏焦点: Alt+↑/↓。")
     sys.stdout.flush()
 

@@ -8,14 +8,14 @@
 
 - 左侧 Windows Terminal pane 运行 `claude`
 - 右侧 pane 运行 `translator-pane.py`
-- 在左侧框选英文后，双击 `Ctrl`
+- 在左侧框选英文后，按 `Ctrl+Space`。双击 `Ctrl` 仍作为备用触发方式。
 - Python 热键程序把选区发送到本地请求目录
 - 右侧翻译 pane 调用 DeepSeek/OpenAI 兼容 API，并以紧凑模式显示中文
 
 ## 文件
 
 - `translator-pane.py`：常驻翻译 CLI
-- `hotkey-double-ctrl.py`：Windows 双击 Ctrl 热键
+- `hotkey-double-ctrl.py`：Windows `Ctrl+Space` / 双击 Ctrl 热键
 - `hotkey-double-ctrl.ahk`：AutoHotkey v2 备用热键
 - `start-claude-translator.ps1`：一键启动热键、Claude Code 和翻译分屏
 - `launch-split.ps1`：启动左右分屏
@@ -89,7 +89,7 @@ powershell -ExecutionPolicy Bypass -File .\install-shortcut.ps1
 
 如果系统不允许脚本自动固定到任务栏，可以在开始菜单搜索 `Claude Code Translator`，右键选择固定到任务栏。
 
-这会自动启动双击 Ctrl 热键、Claude Code 和翻译分屏。默认下方翻译 pane 占 32% 高度。
+这会自动启动 `Ctrl+Space` 热键、Claude Code 和翻译分屏。默认下方翻译 pane 占 32% 高度。
 
 调整初始高度：
 
@@ -123,7 +123,7 @@ powershell -ExecutionPolicy Bypass -File .\start-hotkey.ps1
 powershell -ExecutionPolicy Bypass -File .\launch-split.ps1
 ```
 
-3. 在 Claude Code 左侧 pane 框选英文，双击 `Ctrl`。
+3. 在 Claude Code 左侧 pane 框选英文，按 `Ctrl+Space`。如果这个快捷键被系统输入法占用，可以改用双击 `Ctrl`。
 
 ## 诊断与测试
 
@@ -162,4 +162,4 @@ powershell -ExecutionPolicy Bypass -Command "$py='$env:USERPROFILE\.cache\codex-
 - 不读取 Claude Code 屏幕，只翻译你框选的文本。
 - 终端颜色、光标位置、动态 TUI 状态不会保留。
 - 翻译质量取决于模型和术语表。
-- 双击 Ctrl 是全局热键，目前不限制只在 Windows Terminal 中生效。
+- `Ctrl+Space` 和双击 Ctrl 是全局热键，目前不限制只在 Windows Terminal 中生效。
