@@ -8,14 +8,16 @@
 
 - 左侧 Windows Terminal pane 运行 `claude`
 - 右侧 pane 运行 `translator-pane.py`
-- 在左侧框选英文后，按 `Ctrl+Space`。Windows Terminal 会先复制选区，Python 热键程序随后把选区发送到本地请求目录。
+- 在左侧框选英文后，按 `Ctrl+Alt+T`。Python 热键程序会复制选区并发送到本地请求目录。
 - 双击 `Ctrl` 仍作为备用触发方式。
+- 在 Claude Code 菜单、命令选择器、`/rewind` 等 TUI 界面中，按住 `Shift` 再拖选文字；否则鼠标事件可能被 Claude Code 接管，Windows Terminal 不会产生真实选区。
+- 这是 Windows Terminal 的 mouse mode 行为；微软文档说明终端应用接收鼠标输入时，需要按住 `Shift` 来创建终端选区。
 - 右侧翻译 pane 调用 DeepSeek/OpenAI 兼容 API，并以紧凑模式显示中文
 
 ## 文件
 
 - `translator-pane.py`：常驻翻译 CLI
-- `hotkey-double-ctrl.py`：Windows `Ctrl+Space` / 双击 Ctrl 触发器
+- `hotkey-double-ctrl.py`：Windows `Ctrl+Alt+T` / 双击 Ctrl 触发器
 - `hotkey-double-ctrl.ahk`：AutoHotkey v2 备用热键
 - `start-claude-translator.ps1`：一键启动热键、Claude Code 和翻译分屏
 - `launch-split.ps1`：启动左右分屏
@@ -89,9 +91,9 @@ powershell -ExecutionPolicy Bypass -File .\install-shortcut.ps1
 
 如果系统不允许脚本自动固定到任务栏，可以在开始菜单搜索 `Claude Code Translator`，右键选择固定到任务栏。
 
-这会自动启用 Windows Terminal `copyOnSelect` 和复制快捷键、启动 `Ctrl+Space` 触发器、Claude Code 和翻译分屏。默认下方翻译 pane 占 32% 高度。
+这会自动启用 Windows Terminal `copyOnSelect` 和稳定复制快捷键、启动 `Ctrl+Alt+T` 触发器、Claude Code 和翻译分屏。默认下方翻译 pane 占 32% 高度。
 
-启动脚本会把 Windows Terminal 的 `Ctrl+C`、`Ctrl+Shift+C`、`Ctrl+Space` 显式绑定为复制选区，并设置为复制后不清除选区。修改前会备份 Windows Terminal 的 `settings.json`。
+启动脚本只会把 Windows Terminal 的 `Ctrl+Shift+C` 显式绑定为复制选区，并设置为复制后不清除选区。它不会占用 `Ctrl+C` 或 `Ctrl+Space`。修改前会备份 Windows Terminal 的 `settings.json`。
 
 调整初始高度：
 
@@ -125,7 +127,7 @@ powershell -ExecutionPolicy Bypass -File .\start-hotkey.ps1
 powershell -ExecutionPolicy Bypass -File .\launch-split.ps1
 ```
 
-3. 在 Claude Code 左侧 pane 框选英文，按 `Ctrl+Space`。如果这个快捷键被系统输入法占用，可以改用双击 `Ctrl`。
+3. 在 Claude Code 左侧 pane 框选英文，按 `Ctrl+Alt+T`。如果在菜单、命令选择器或 `/rewind` 界面中选择文字，请按住 `Shift` 再拖选。双击 `Ctrl` 是备用触发方式。
 
 ## 诊断与测试
 
@@ -164,5 +166,5 @@ powershell -ExecutionPolicy Bypass -Command "$py='$env:USERPROFILE\.cache\codex-
 - 不读取 Claude Code 屏幕，只翻译你框选的文本。
 - 终端颜色、光标位置、动态 TUI 状态不会保留。
 - 翻译质量取决于模型和术语表。
-- `Ctrl+Space` 依赖 Windows Terminal 复制绑定；如果绑定被其他软件覆盖，先运行 `diagnose-hotkey.ps1` 检查复制动作是否仍然存在。
+- `Ctrl+Alt+T` 是全局触发器；如果注册失败，先运行 `diagnose-hotkey.ps1` 检查日志。
 - 双击 Ctrl 是全局备用触发方式，目前不限制只在 Windows Terminal 中生效。

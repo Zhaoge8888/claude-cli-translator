@@ -113,6 +113,52 @@ function Ensure-Keybinding {
     return $changed
 }
 
+function Get-DefaultCopyActionId {
+    param([pscustomobject]$Settings)
+
+    $actions = @(ConvertTo-Array $Settings.actions)
+    $copyAction = $actions | Where-Object {
+        $_.id -ne $TranslatorCopyActionId -and $_.command -and $_.command.action -eq "copy"
+    } | Select-Object -First 1
+
+    if ($copyAction -and $copyAction.id) {
+        return [string]$copyAction.id
+    }
+
+    return $null
+}
+
+function Restore-Or-Remove-ManagedKeybinding {
+    param(
+        [pscustomobject]$Settings,
+        [string]$Keys,
+        [string]$RestoreId
+    )
+
+    Ensure-JsonArrayProperty -Object $Settings -Name "keybindings"
+    $keybindings = @(ConvertTo-Array $Settings.keybindings)
+    $changed = $false
+    $kept = @()
+
+    foreach ($binding in $keybindings) {
+        if ([string]$binding.keys -ieq $Keys -and $binding.id -eq $TranslatorCopyActionId) {
+            if ($RestoreId) {
+                $binding.id = $RestoreId
+                $kept += $binding
+            }
+            $changed = $true
+        } else {
+            $kept += $binding
+        }
+    }
+
+    if ($changed) {
+        $Settings.keybindings = $kept
+    }
+
+    return $changed
+}
+
 $paths = @(Get-TerminalSettingsPaths)
 if ($paths.Count -eq 0) {
     Write-Host "Windows Terminal settings.json not found. Skipping copyOnSelect setup."
@@ -149,10 +195,16 @@ foreach ($path in $paths) {
         $changed = $true
     }
 
-    foreach ($keys in @("ctrl+c", "ctrl+shift+c", "ctrl+space")) {
-        if (Ensure-Keybinding -Settings $settings -Keys $keys) {
-            $changed = $true
-        }
+    if (Ensure-Keybinding -Settings $settings -Keys "ctrl+shift+c") {
+        $changed = $true
+    }
+
+    $defaultCopyActionId = Get-DefaultCopyActionId -Settings $settings
+    if (Restore-Or-Remove-ManagedKeybinding -Settings $settings -Keys "ctrl+c" -RestoreId $defaultCopyActionId) {
+        $changed = $true
+    }
+    if (Restore-Or-Remove-ManagedKeybinding -Settings $settings -Keys "ctrl+space" -RestoreId $null) {
+        $changed = $true
     }
 
     if (-not $changed) {

@@ -47,4 +47,4 @@ if (-not $Python) {
 }
 
 Start-Process -FilePath $Python -ArgumentList "`"$HotkeyScript`"" -WindowStyle Hidden
-Write-Host "Started Python hotkey: Ctrl+Space, fallback double Ctrl."
+Write-Host "Started Python hotkey: Ctrl+Alt+T, fallback double Ctrl."

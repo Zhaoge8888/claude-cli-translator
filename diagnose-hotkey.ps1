@@ -39,6 +39,9 @@ foreach ($settingsPath in $terminalSettingsPaths) {
                 if ($binding) {
                     if ($binding.id) {
                         Write-Host "    $keys binding: id=$($binding.id)"
+                        if (($keys -eq "ctrl+c" -or $keys -eq "ctrl+space") -and $binding.id -eq "User.claudeCliTranslator.copyKeepSelection") {
+                            Write-Host "      warning: this should be repaired by enable-terminal-copy-on-select.ps1"
+                        }
                     } elseif ($binding.command) {
                         $bindingJson = $binding.command | ConvertTo-Json -Compress -Depth 10
                         Write-Host "    $keys binding: command=$bindingJson"
