@@ -18,6 +18,7 @@ LOG_FILE = STATE_DIR / "hotkey.log"
 DOUBLE_TAP_MS = 380
 COPY_STABILIZE_DELAY_SECONDS = 0.12
 COPY_ATTEMPT_WAIT_SECONDS = 0.75
+COPY_ON_SELECT_FALLBACK_MAX_AGE_SECONDS = 30.0
 
 WH_KEYBOARD_LL = 13
 WM_KEYDOWN = 0x0100
@@ -104,6 +105,8 @@ user32.CallNextHookEx.argtypes = [wintypes.HHOOK, ctypes.c_int, wintypes.WPARAM,
 user32.CallNextHookEx.restype = ctypes.c_long
 user32.GetMessageW.argtypes = [ctypes.POINTER(wintypes.MSG), wintypes.HWND, wintypes.UINT, wintypes.UINT]
 user32.GetMessageW.restype = wintypes.BOOL
+user32.GetClipboardSequenceNumber.argtypes = []
+user32.GetClipboardSequenceNumber.restype = wintypes.DWORD
 user32.RegisterHotKey.argtypes = [wintypes.HWND, ctypes.c_int, wintypes.UINT, wintypes.UINT]
 user32.RegisterHotKey.restype = wintypes.BOOL
 user32.UnregisterHotKey.argtypes = [wintypes.HWND, ctypes.c_int]
@@ -142,6 +145,9 @@ last_ctrl_tap = 0.0
 is_sending = False
 hook_handle = None
 trigger_queue: "queue.Queue[str]" = queue.Queue()
+clipboard_sequence = 0
+clipboard_last_change = 0.0
+internal_clipboard_sequences: set[int] = set()
 
 
 def log(message: str) -> None:
@@ -149,6 +155,29 @@ def log(message: str) -> None:
     stamp = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with LOG_FILE.open("a", encoding="utf-8") as f:
         f.write(f"{stamp} {message}\n")
+
+
+def refresh_clipboard_sequence(now=None) -> int:
+    global clipboard_sequence, clipboard_last_change
+    if now is None:
+        now = time.monotonic()
+    current = int(user32.GetClipboardSequenceNumber())
+    if current != clipboard_sequence:
+        clipboard_sequence = current
+        if current in internal_clipboard_sequences:
+            internal_clipboard_sequences.discard(current)
+        else:
+            clipboard_last_change = now
+    return current
+
+
+def clipboard_monitor() -> None:
+    global clipboard_sequence, clipboard_last_change
+    clipboard_sequence = int(user32.GetClipboardSequenceNumber())
+    clipboard_last_change = 0.0
+    while True:
+        refresh_clipboard_sequence()
+        time.sleep(0.1)
 
 
 def enqueue_trigger(source: str) -> None:
@@ -201,7 +230,7 @@ def get_clipboard_text() -> str:
         user32.CloseClipboard()
 
 
-def set_clipboard_text(text: str) -> None:
+def set_clipboard_text(text: str, internal: bool = True) -> None:
     if not open_clipboard():
         return
     try:
@@ -221,6 +250,8 @@ def set_clipboard_text(text: str) -> None:
         user32.SetClipboardData(CF_UNICODETEXT, handle)
     finally:
         user32.CloseClipboard()
+    if internal:
+        internal_clipboard_sequences.add(int(user32.GetClipboardSequenceNumber()))
 
 
 def key_input(vk: int, flags: int = 0) -> INPUT:
@@ -275,6 +306,14 @@ def copy_selected_text(sentinel: str) -> str:
     return ""
 
 
+def can_use_copy_on_select_fallback(saved_text: str, saved_change_age: float) -> bool:
+    if not saved_text:
+        return False
+    if len(saved_text.strip()) < 2:
+        return False
+    return saved_change_age <= COPY_ON_SELECT_FALLBACK_MAX_AGE_SECONDS
+
+
 def write_request(text: str) -> Path:
     REQUEST_DIR.mkdir(parents=True, exist_ok=True)
     stamp = _dt.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
@@ -284,7 +323,7 @@ def write_request(text: str) -> Path:
 
 
 def trigger_translate(source: str) -> None:
-    global is_sending
+    global is_sending, clipboard_sequence, clipboard_last_change
     if is_sending:
         return
     is_sending = True
@@ -292,10 +331,17 @@ def trigger_translate(source: str) -> None:
         log(f"{source} trigger detected")
         wait_for_hotkey_release()
         saved_text = get_clipboard_text()
+        now = time.monotonic()
+        refresh_clipboard_sequence(now)
+        saved_change_age = (now - clipboard_last_change) if clipboard_last_change else float("inf")
         sentinel = f"__CLAUDE_CLI_TRANSLATOR_SENTINEL_{time.time_ns()}__"
         set_clipboard_text(sentinel)
         time.sleep(COPY_STABILIZE_DELAY_SECONDS)
         copied = copy_selected_text(sentinel)
+
+        if not copied and can_use_copy_on_select_fallback(saved_text, saved_change_age):
+            copied = saved_text.strip("\r\n\t ")
+            log(f"copyOnSelect fallback used {len(copied)} chars, clipboard age={saved_change_age:.2f}s")
 
         set_clipboard_text(saved_text)
 
@@ -351,6 +397,8 @@ def main() -> int:
     ensure_single_instance()
     REQUEST_DIR.mkdir(parents=True, exist_ok=True)
     log("python hotkey started")
+    monitor = threading.Thread(target=clipboard_monitor, name="clipboard-monitor", daemon=True)
+    monitor.start()
     worker = threading.Thread(target=trigger_worker, name="trigger-worker", daemon=True)
     worker.start()
     ctrl_space_registered = bool(user32.RegisterHotKey(None, HOTKEY_ID_CTRL_SPACE, MOD_CONTROL, VK_SPACE))

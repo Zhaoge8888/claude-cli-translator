@@ -9,6 +9,32 @@ Write-Host "Request dir exists: $(Test-Path $requestDir)"
 Write-Host "Hotkey log exists: $(Test-Path $logFile)"
 Write-Host ""
 
+Write-Host "Windows Terminal settings:"
+$terminalSettingsPaths = @(
+    (Join-Path $env:LOCALAPPDATA "Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json"),
+    (Join-Path $env:LOCALAPPDATA "Packages\Microsoft.WindowsTerminalPreview_8wekyb3d8bbwe\LocalState\settings.json"),
+    (Join-Path $env:LOCALAPPDATA "Microsoft\Windows Terminal\settings.json")
+)
+$foundTerminalSettings = $false
+foreach ($settingsPath in $terminalSettingsPaths) {
+    if (Test-Path $settingsPath) {
+        $foundTerminalSettings = $true
+        try {
+            $settings = Get-Content -Raw -Encoding UTF8 $settingsPath | ConvertFrom-Json
+            Write-Host "  $settingsPath"
+            Write-Host "    copyOnSelect: $($settings.copyOnSelect)"
+            Write-Host "    copyFormatting: $($settings.copyFormatting)"
+        } catch {
+            Write-Host "  $settingsPath"
+            Write-Host "    Could not parse settings.json: $($_.Exception.Message)"
+        }
+    }
+}
+if (-not $foundTerminalSettings) {
+    Write-Host "  No settings.json found."
+}
+Write-Host ""
+
 Write-Host "AutoHotkey processes:"
 $processes = Get-Process | Where-Object { $_.ProcessName -like "AutoHotkey*" }
 if ($processes) {

@@ -89,7 +89,9 @@ powershell -ExecutionPolicy Bypass -File .\install-shortcut.ps1
 
 如果系统不允许脚本自动固定到任务栏，可以在开始菜单搜索 `Claude Code Translator`，右键选择固定到任务栏。
 
-这会自动启动 `Ctrl+Space` 热键、Claude Code 和翻译分屏。默认下方翻译 pane 占 32% 高度。
+这会自动启用 Windows Terminal `copyOnSelect`、启动 `Ctrl+Space` 热键、Claude Code 和翻译分屏。默认下方翻译 pane 占 32% 高度。
+
+`copyOnSelect` 会让 Windows Terminal 在框选文字时自动复制选区，这是为了避免热键模拟复制偶发失败。修改前会备份 Windows Terminal 的 `settings.json`。
 
 调整初始高度：
 
