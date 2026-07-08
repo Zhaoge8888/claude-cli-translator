@@ -16,7 +16,8 @@ REQUEST_DIR = STATE_DIR / "requests"
 LOG_FILE = STATE_DIR / "hotkey.log"
 
 DOUBLE_TAP_MS = 380
-COPY_WAIT_SECONDS = 1.4
+COPY_STABILIZE_DELAY_SECONDS = 0.12
+COPY_ATTEMPT_WAIT_SECONDS = 0.75
 
 WH_KEYBOARD_LL = 13
 WM_KEYDOWN = 0x0100
@@ -30,6 +31,7 @@ VK_CONTROL = 0x11
 VK_SHIFT = 0x10
 VK_SPACE = 0x20
 VK_C = 0x43
+VK_INSERT = 0x2D
 KEYEVENTF_KEYUP = 0x0002
 INPUT_KEYBOARD = 1
 CF_UNICODETEXT = 13
@@ -228,32 +230,49 @@ def key_input(vk: int, flags: int = 0) -> INPUT:
     return item
 
 
-def send_ctrl_shift_c() -> None:
+def send_key_chord(name: str, keys: list[int]) -> None:
     cb_size = ctypes.sizeof(INPUT)
-    inputs = (INPUT * 6)(
-        key_input(VK_CONTROL),
-        key_input(VK_SHIFT),
-        key_input(VK_C),
-        key_input(VK_C, KEYEVENTF_KEYUP),
-        key_input(VK_SHIFT, KEYEVENTF_KEYUP),
-        key_input(VK_CONTROL, KEYEVENTF_KEYUP),
-    )
-    sent = user32.SendInput(6, inputs, cb_size)
-    if sent == 6:
+    events = [key_input(vk) for vk in keys]
+    events.extend(key_input(vk, KEYEVENTF_KEYUP) for vk in reversed(keys))
+    inputs = (INPUT * len(events))(*events)
+    sent = user32.SendInput(len(events), inputs, cb_size)
+    if sent == len(events):
         return
 
     error = ctypes.get_last_error()
-    log(f"SendInput sent {sent}/6 events, error={error}, cbSize={cb_size}; falling back to keybd_event")
-    for vk, flags in (
-        (VK_CONTROL, 0),
-        (VK_SHIFT, 0),
-        (VK_C, 0),
-        (VK_C, KEYEVENTF_KEYUP),
-        (VK_SHIFT, KEYEVENTF_KEYUP),
-        (VK_CONTROL, KEYEVENTF_KEYUP),
-    ):
+    log(f"{name}: SendInput sent {sent}/{len(events)} events, error={error}, cbSize={cb_size}; falling back to keybd_event")
+    for event in events:
+        vk = event.union.ki.wVk
+        flags = event.union.ki.dwFlags
         user32.keybd_event(vk, 0, flags, 0)
         time.sleep(0.015)
+
+
+def wait_for_copied_text(sentinel: str, timeout_seconds: float) -> str:
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        current = get_clipboard_text()
+        if current and current != sentinel:
+            return current.strip("\r\n\t ")
+        time.sleep(0.04)
+    return ""
+
+
+def copy_selected_text(sentinel: str) -> str:
+    attempts = (
+        ("Ctrl+Shift+C", [VK_CONTROL, VK_SHIFT, VK_C]),
+        ("Ctrl+Insert", [VK_CONTROL, VK_INSERT]),
+    )
+    for name, keys in attempts:
+        log(f"copy attempt: {name}")
+        send_key_chord(name, keys)
+        time.sleep(0.05)
+        copied = wait_for_copied_text(sentinel, COPY_ATTEMPT_WAIT_SECONDS)
+        if copied:
+            log(f"{name} copied {len(copied)} chars")
+            return copied
+        log(f"{name} copied no text")
+    return ""
 
 
 def write_request(text: str) -> Path:
@@ -275,20 +294,10 @@ def trigger_translate(source: str) -> None:
         saved_text = get_clipboard_text()
         sentinel = f"__CLAUDE_CLI_TRANSLATOR_SENTINEL_{time.time_ns()}__"
         set_clipboard_text(sentinel)
-        send_ctrl_shift_c()
-        time.sleep(0.05)
+        time.sleep(COPY_STABILIZE_DELAY_SECONDS)
+        copied = copy_selected_text(sentinel)
 
-        copied = ""
-        deadline = time.time() + COPY_WAIT_SECONDS
-        while time.time() < deadline:
-            current = get_clipboard_text()
-            if current and current != sentinel:
-                copied = current.strip("\r\n\t ")
-                break
-            time.sleep(0.04)
-
-        if saved_text:
-            set_clipboard_text(saved_text)
+        set_clipboard_text(saved_text)
 
         if len(copied) < 2:
             log("copy failed or selection empty")
