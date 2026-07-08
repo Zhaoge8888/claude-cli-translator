@@ -8,14 +8,14 @@
 
 - 左侧 Windows Terminal pane 运行 `claude`
 - 右侧 pane 运行 `translator-pane.py`
-- 在左侧框选英文后，按 `Ctrl+Space`。双击 `Ctrl` 仍作为备用触发方式。
-- Python 热键程序把选区发送到本地请求目录
+- 在左侧框选英文后，按 `Ctrl+Space`。Windows Terminal 会先复制选区，Python 热键程序随后把选区发送到本地请求目录。
+- 双击 `Ctrl` 仍作为备用触发方式。
 - 右侧翻译 pane 调用 DeepSeek/OpenAI 兼容 API，并以紧凑模式显示中文
 
 ## 文件
 
 - `translator-pane.py`：常驻翻译 CLI
-- `hotkey-double-ctrl.py`：Windows `Ctrl+Space` / 双击 Ctrl 热键
+- `hotkey-double-ctrl.py`：Windows `Ctrl+Space` / 双击 Ctrl 触发器
 - `hotkey-double-ctrl.ahk`：AutoHotkey v2 备用热键
 - `start-claude-translator.ps1`：一键启动热键、Claude Code 和翻译分屏
 - `launch-split.ps1`：启动左右分屏
@@ -89,9 +89,9 @@ powershell -ExecutionPolicy Bypass -File .\install-shortcut.ps1
 
 如果系统不允许脚本自动固定到任务栏，可以在开始菜单搜索 `Claude Code Translator`，右键选择固定到任务栏。
 
-这会自动启用 Windows Terminal `copyOnSelect`、启动 `Ctrl+Space` 热键、Claude Code 和翻译分屏。默认下方翻译 pane 占 32% 高度。
+这会自动启用 Windows Terminal `copyOnSelect` 和复制快捷键、启动 `Ctrl+Space` 触发器、Claude Code 和翻译分屏。默认下方翻译 pane 占 32% 高度。
 
-`copyOnSelect` 会让 Windows Terminal 在框选文字时自动复制选区，这是为了避免热键模拟复制偶发失败。修改前会备份 Windows Terminal 的 `settings.json`。
+启动脚本会把 Windows Terminal 的 `Ctrl+C`、`Ctrl+Shift+C`、`Ctrl+Space` 显式绑定为复制选区，并设置为复制后不清除选区。修改前会备份 Windows Terminal 的 `settings.json`。
 
 调整初始高度：
 
@@ -164,4 +164,5 @@ powershell -ExecutionPolicy Bypass -Command "$py='$env:USERPROFILE\.cache\codex-
 - 不读取 Claude Code 屏幕，只翻译你框选的文本。
 - 终端颜色、光标位置、动态 TUI 状态不会保留。
 - 翻译质量取决于模型和术语表。
-- `Ctrl+Space` 和双击 Ctrl 是全局热键，目前不限制只在 Windows Terminal 中生效。
+- `Ctrl+Space` 依赖 Windows Terminal 复制绑定；如果绑定被其他软件覆盖，先运行 `diagnose-hotkey.ps1` 检查复制动作是否仍然存在。
+- 双击 Ctrl 是全局备用触发方式，目前不限制只在 Windows Terminal 中生效。

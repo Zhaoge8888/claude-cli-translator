@@ -20,6 +20,7 @@ DOUBLE_TAP_MS = 380
 COPY_STABILIZE_DELAY_SECONDS = 0.12
 COPY_ATTEMPT_WAIT_SECONDS = 0.75
 COPY_ON_SELECT_FALLBACK_MAX_AGE_SECONDS = 30.0
+POST_HOTKEY_CLIPBOARD_DELAY_SECONDS = 0.16
 STATUS_NOISE_TEXTS = {
     "accessing workspace",
 }
@@ -29,7 +30,6 @@ WM_KEYDOWN = 0x0100
 WM_KEYUP = 0x0101
 WM_SYSKEYDOWN = 0x0104
 WM_SYSKEYUP = 0x0105
-WM_HOTKEY = 0x0312
 VK_LCONTROL = 0xA2
 VK_RCONTROL = 0xA3
 VK_CONTROL = 0x11
@@ -42,8 +42,6 @@ INPUT_KEYBOARD = 1
 CF_UNICODETEXT = 13
 GMEM_MOVEABLE = 0x0002
 ERROR_ALREADY_EXISTS = 183
-MOD_CONTROL = 0x0002
-HOTKEY_ID_CTRL_SPACE = 1001
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -111,10 +109,6 @@ user32.GetMessageW.argtypes = [ctypes.POINTER(wintypes.MSG), wintypes.HWND, wint
 user32.GetMessageW.restype = wintypes.BOOL
 user32.GetClipboardSequenceNumber.argtypes = []
 user32.GetClipboardSequenceNumber.restype = wintypes.DWORD
-user32.RegisterHotKey.argtypes = [wintypes.HWND, ctypes.c_int, wintypes.UINT, wintypes.UINT]
-user32.RegisterHotKey.restype = wintypes.BOOL
-user32.UnregisterHotKey.argtypes = [wintypes.HWND, ctypes.c_int]
-user32.UnregisterHotKey.restype = wintypes.BOOL
 user32.GetAsyncKeyState.argtypes = [ctypes.c_int]
 user32.GetAsyncKeyState.restype = ctypes.c_short
 user32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int]
@@ -146,6 +140,8 @@ kernel32.GlobalUnlock.restype = wintypes.BOOL
 
 
 last_ctrl_tap = 0.0
+ctrl_space_down = False
+suppress_next_ctrl_tap = False
 is_sending = False
 hook_handle = None
 trigger_queue: "queue.Queue[str]" = queue.Queue()
@@ -363,6 +359,7 @@ def trigger_translate(source: str) -> None:
     try:
         log(f"{source} trigger detected")
         wait_for_hotkey_release()
+        time.sleep(POST_HOTKEY_CLIPBOARD_DELAY_SECONDS)
         saved_text = get_clipboard_text()
         now = time.monotonic()
         refresh_clipboard_sequence(now)
@@ -403,10 +400,22 @@ def trigger_worker() -> None:
 
 
 def keyboard_proc(n_code, w_param, l_param):
-    global last_ctrl_tap
+    global last_ctrl_tap, ctrl_space_down, suppress_next_ctrl_tap
     if n_code == 0 and not is_sending:
         event = ctypes.cast(l_param, ctypes.POINTER(KBDLLHOOKSTRUCT)).contents
+        if event.vkCode == VK_SPACE:
+            if w_param in (WM_KEYDOWN, WM_SYSKEYDOWN) and any(is_key_down(vk) for vk in (VK_CONTROL, VK_LCONTROL, VK_RCONTROL)):
+                ctrl_space_down = True
+            elif w_param in (WM_KEYUP, WM_SYSKEYUP) and ctrl_space_down:
+                ctrl_space_down = False
+                suppress_next_ctrl_tap = True
+                enqueue_trigger("Ctrl+Space")
+
         if w_param in (WM_KEYUP, WM_SYSKEYUP) and event.vkCode in (VK_CONTROL, VK_LCONTROL, VK_RCONTROL):
+            if suppress_next_ctrl_tap:
+                suppress_next_ctrl_tap = False
+                last_ctrl_tap = 0.0
+                return user32.CallNextHookEx(hook_handle, n_code, w_param, l_param)
             now = time.monotonic() * 1000
             if now - last_ctrl_tap <= DOUBLE_TAP_MS:
                 last_ctrl_tap = 0.0
@@ -437,11 +446,7 @@ def main() -> int:
     monitor.start()
     worker = threading.Thread(target=trigger_worker, name="trigger-worker", daemon=True)
     worker.start()
-    ctrl_space_registered = bool(user32.RegisterHotKey(None, HOTKEY_ID_CTRL_SPACE, MOD_CONTROL, VK_SPACE))
-    if ctrl_space_registered:
-        log("Ctrl+Space registered")
-    else:
-        log(f"Ctrl+Space registration failed: {ctypes.get_last_error()}")
+    log("Ctrl+Space hook active")
     print("Claude CLI Translator hotkey active: Ctrl+Space, fallback double Ctrl")
     print(f"Log: {LOG_FILE}")
     callback = HOOKPROC(keyboard_proc)
@@ -453,13 +458,8 @@ def main() -> int:
         return 1
     msg = wintypes.MSG()
     while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) != 0:
-        if msg.message == WM_HOTKEY and msg.wParam == HOTKEY_ID_CTRL_SPACE:
-            enqueue_trigger("Ctrl+Space")
-            continue
         user32.TranslateMessage(ctypes.byref(msg))
         user32.DispatchMessageW(ctypes.byref(msg))
-    if ctrl_space_registered:
-        user32.UnregisterHotKey(None, HOTKEY_ID_CTRL_SPACE)
     return 0
 
 

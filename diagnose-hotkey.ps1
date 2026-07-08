@@ -24,6 +24,31 @@ foreach ($settingsPath in $terminalSettingsPaths) {
             Write-Host "  $settingsPath"
             Write-Host "    copyOnSelect: $($settings.copyOnSelect)"
             Write-Host "    copyFormatting: $($settings.copyFormatting)"
+            $actions = @($settings.actions)
+            $keybindings = @($settings.keybindings)
+            $translatorCopyAction = $actions | Where-Object { $_.id -eq "User.claudeCliTranslator.copyKeepSelection" } | Select-Object -First 1
+            if ($translatorCopyAction) {
+                $commandJson = $translatorCopyAction.command | ConvertTo-Json -Compress -Depth 10
+                Write-Host "    translator copy action: $commandJson"
+            } else {
+                Write-Host "    translator copy action: missing"
+            }
+
+            foreach ($keys in @("ctrl+c", "ctrl+shift+c", "ctrl+space")) {
+                $binding = $keybindings | Where-Object { [string]$_.keys -ieq $keys } | Select-Object -First 1
+                if ($binding) {
+                    if ($binding.id) {
+                        Write-Host "    $keys binding: id=$($binding.id)"
+                    } elseif ($binding.command) {
+                        $bindingJson = $binding.command | ConvertTo-Json -Compress -Depth 10
+                        Write-Host "    $keys binding: command=$bindingJson"
+                    } else {
+                        Write-Host "    $keys binding: present without id/command"
+                    }
+                } else {
+                    Write-Host "    $keys binding: missing"
+                }
+            }
         } catch {
             Write-Host "  $settingsPath"
             Write-Host "    Could not parse settings.json: $($_.Exception.Message)"
@@ -45,7 +70,9 @@ if ($processes) {
 
 Write-Host ""
 Write-Host "Python hotkey processes:"
-$pythonHotkeys = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*hotkey-double-ctrl.py*" }
+$pythonHotkeys = Get-CimInstance Win32_Process | Where-Object {
+    $_.Name -like "python*.exe" -and $_.CommandLine -like "*hotkey-double-ctrl.py*"
+}
 if ($pythonHotkeys) {
     $pythonHotkeys | Select-Object ProcessId, Name, CommandLine | Format-Table -AutoSize -Wrap
 } else {

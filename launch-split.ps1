@@ -78,7 +78,7 @@ if (-not (Get-Command wt.exe -ErrorAction SilentlyContinue)) {
     exit 1
 }
 
-$claudeCommand = 'new-tab --title "Claude Code" powershell -NoExit -Command "& ''' + $ClaudeCommand + '''"'
+$claudeCommand = '-w new new-tab --title "Claude Code" powershell -NoExit -Command "& ''' + $ClaudeCommand + '''"'
 $splitDirection = if ($SideBySide) { "-V" } else { "-H" }
 $translatorCommand = 'split-pane ' + $splitDirection + ' --size ' + $TranslatorSize.ToString([System.Globalization.CultureInfo]::InvariantCulture) + ' --title "CLI Translator" powershell -NoExit -ExecutionPolicy Bypass -File "' + $RunTranslator + '"'
 
